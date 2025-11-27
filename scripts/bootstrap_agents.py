@@ -1,106 +1,134 @@
-import os
-import socket
-import subprocess
-import time
-from urllib.parse import urlparse
+"""Warm up the triage workflow and verify configuration."""
 
-from azure.identity import DefaultAzureCredential
-from azure.ai.projects import AIProjectClient
-from azure.ai.agents.models import ConnectedAgentTool
+from __future__ import annotations
 
-endpoint = os.environ["AIFOUNDRY_PROJECT_ENDPOINT"]
-default_host = os.environ.get("AIFOUNDRY_ACCOUNT_HOST")
-agent_model = os.getenv("AIFOUNDRY_AGENT_MODEL", "gpt-4o").strip() or "gpt-4o"
-credential = DefaultAzureCredential()
-project_client = AIProjectClient(endpoint=endpoint, credential=credential)
-agents_client = project_client.agents
+import argparse
+import asyncio
+import json
+import sys
+from pathlib import Path
+from typing import Optional
+import re
 
-def wait_for_dns(host: str, timeout: int = 900, interval: int = 10) -> None:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            socket.gethostbyname(host)
-            return
-        except socket.gaierror:
-            print(f"Waiting for DNS propagation for {host}...", flush=True)
-            time.sleep(interval)
-    raise RuntimeError(f"DNS name {host} did not resolve within {timeout} seconds.")
+if __package__ in {None, ""}:
+    sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-
-parsed = urlparse(endpoint)
-if not parsed.hostname:
-    raise ValueError(f"Invalid project endpoint: {endpoint}")
-
-# Prefer the project endpoint host (custom subdomain). Keep the legacy account host
-# as a fallback for older environments or partially-provisioned setups.
-bootstrap_host = parsed.hostname
-fallback_host = None
-if default_host:
-    parsed_default = urlparse(default_host if default_host.startswith("https") else f"https://{default_host}")
-    if parsed_default.hostname and parsed_default.hostname.lower() != bootstrap_host.lower():
-        fallback_host = parsed_default.hostname
-
-dns_timeout_env = os.getenv("AIFOUNDRY_DNS_TIMEOUT")
-try:
-    dns_timeout = int(dns_timeout_env) if dns_timeout_env else 900
-except ValueError:
-    dns_timeout = 900
+from src.api.triage_workflow import (
+    MissingEnvironmentError,
+    TriageWorkflow,
+    WorkflowExecutionError,
+    WorkflowNotReadyError,
+    WorkflowResultError,
+)
 
 try:
-    wait_for_dns(bootstrap_host, timeout=dns_timeout)
-except RuntimeError:
-    if fallback_host:
-        wait_for_dns(fallback_host, timeout=dns_timeout)
-    else:
-        raise
+    # Allow execution as a script or via `python -m scripts.bootstrap_agents`.
+    from scripts.verify_agent import _initialize_env
+except ModuleNotFoundError:  # pragma: no cover - fallback when running directly
+    from verify_agent import _initialize_env
 
-print(f"Provisioning agents with model: {agent_model}")
 
-print("Creating specialist agents...")
-priority = agents_client.create_agent(
-    model=agent_model, name="priority", instructions="Return High/Medium/Low"
-)
-team = agents_client.create_agent(
-    model=agent_model, name="team", instructions="Assign Frontend/Backend/Infra/Marketing"
-)
-effort = agents_client.create_agent(
-    model=agent_model, name="effort", instructions="Estimate Small/Medium/Large"
-)
+def _sanitize(value: object) -> object:
+    if isinstance(value, dict):
+        sanitized: dict[str, object] = {}
+        for key, inner in value.items():
+            new_key = " ".join(str(key).split()).strip() if isinstance(key, str) else key
+            sanitized[new_key] = _sanitize(inner)
+        return sanitized
+    if isinstance(value, list):
+        return [_sanitize(item) for item in value]
+    if isinstance(value, str):
+        compact = " ".join(value.split())
+        return compact.strip()
+    return value
 
-print("PRIORITY_AGENT_ID:", priority.id)
-print("TEAM_AGENT_ID:", team.id)
-print("EFFORT_AGENT_ID:", effort.id)
 
-connected_tools = [
-    ConnectedAgentTool(
-        id=priority.id,
-        name=priority.name,
-        description="Assesses ticket priority",
-    ),
-    ConnectedAgentTool(
-        id=team.id,
-        name=team.name,
-        description="Suggests responsible team",
-    ),
-    ConnectedAgentTool(
-        id=effort.id,
-        name=effort.name,
-        description="Estimates effort required",
-    ),
-]
+async def _bootstrap(ticket: Optional[str], output: Optional[Path]) -> int:
+    workflow = TriageWorkflow()
+    try:
+        await workflow.startup()
+    except MissingEnvironmentError as exc:
+        print(f"Missing environment configuration: {exc}", file=sys.stderr)
+        return 1
 
-print("Creating triage agent...")
-triage = agents_client.create_agent(
-    model=agent_model,
-    name="triage",
-    instructions="Coordinate priority, team, and effort via connected agents.",
-    tools=[definition for tool in connected_tools for definition in tool.definitions],
-)
+    print("Workflow initialized successfully.")
+    print(json.dumps(workflow.environment_snapshot(), indent=2))
 
-print("TRIAGE_AGENT_ID:", triage.id)
+    if not ticket:
+        await workflow.shutdown()
+        return 0
 
-# Store in azd env
-subprocess.run(["azd", "env", "set", "TRIAGE_AGENT_ID", triage.id], check=False)
-subprocess.run(["azd", "env", "set", "PRIORITY_AGENT_ID", priority.id], check=False)
-subprocess.run(["azd", "env", "set", "TEAM_AGENT_ID", team.id], check=False)
-subprocess.run(["azd", "env", "set", "EFFORT_AGENT_ID", effort.id], check=False)
+    try:
+        result, trace = await workflow.triage_with_trace(ticket)
+    except (WorkflowNotReadyError, WorkflowExecutionError, WorkflowResultError) as exc:
+        print(f"Workflow execution failed: {exc}", file=sys.stderr)
+        await workflow.shutdown()
+        return 1
+
+    await workflow.shutdown()
+
+    print("\nSample triage result:")
+    print(json.dumps(_sanitize(result), indent=2))
+
+    if output:
+        output.write_text(json.dumps(result, indent=2), encoding="utf-8")
+        print(f"Saved workflow output to {output}")
+
+    if trace.messages:
+        print("\nParticipant trace:")
+        for executor_id, messages in trace.messages.items():
+            print(f"\n[{executor_id}]")
+            combined = " ".join(part.strip() for part in messages if part.strip())
+            if not combined:
+                continue
+
+            try:
+                parsed = json.loads(combined)
+            except json.JSONDecodeError:
+                normalized = (
+                    combined.replace('" \n', '" ').replace('\n "', ' "').replace('\n', ' ')
+                )
+                normalized = re.sub(r"\s+", " ", normalized).strip()
+                for symbol in [",", ":", "{", "}", "[", "]"]:
+                    normalized = normalized.replace(f" {symbol}", symbol).replace(f"{symbol} ", symbol)
+                try:
+                    parsed = json.loads(normalized)
+                except json.JSONDecodeError:
+                    print(normalized)
+                else:
+                    print(json.dumps(_sanitize(parsed), indent=2))
+            else:
+                print(json.dumps(_sanitize(parsed), indent=2))
+
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Initialize and optionally warm up the triage workflow.")
+    parser.add_argument(
+        "--ticket",
+        help="Optional ticket text to execute as a warm-up run.",
+    )
+    parser.add_argument(
+        "--env-file",
+        help="Optional path to an env file to load before initialization.",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="Optional file path to write the warm-up result as JSON.",
+    )
+
+    args = parser.parse_args()
+
+    if args.output and args.output.is_dir():
+        print("--output must reference a file, not a directory.", file=sys.stderr)
+        return 1
+
+    _initialize_env(args.env_file)
+
+    return asyncio.run(_bootstrap(args.ticket.strip() if args.ticket else None, args.output))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

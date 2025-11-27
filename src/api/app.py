@@ -1,31 +1,49 @@
-import os
+from __future__ import annotations
+
+from typing import Any
+
 from fastapi import Body, FastAPI, HTTPException
-from azure.identity import DefaultAzureCredential
-from azure.ai.projects import AIProjectClient
+
+from .triage_workflow import (
+    MissingEnvironmentError,
+    TriageWorkflow,
+    WorkflowExecutionError,
+    WorkflowNotReadyError,
+    WorkflowResultError,
+)
+
 
 app = FastAPI()
+workflow = TriageWorkflow()
 
-endpoint = os.environ["AIFOUNDRY_PROJECT_ENDPOINT"]
-triage_agent_id = os.environ.get("TRIAGE_AGENT_ID")
 
-cred = DefaultAzureCredential()
-project_client = AIProjectClient(endpoint=endpoint, credential=cred)
-agents_client = project_client.agents
+@app.on_event("startup")
+async def _startup() -> None:
+    try:
+        await workflow.startup()
+    except MissingEnvironmentError as exc:
+        raise RuntimeError(str(exc)) from exc
+
+
+@app.on_event("shutdown")
+async def _shutdown() -> None:
+    await workflow.shutdown()
+
 
 @app.get("/")
-def health():
-    return {"status": "ok", "endpoint": endpoint, "triage_agent_id": triage_agent_id}
+async def health() -> dict[str, Any]:
+    return {"status": "ok", **workflow.environment_snapshot()}
+
 
 @app.post("/triage")
-def triage(ticket: str = Body(..., embed=True)):
-    if not triage_agent_id:
-        raise HTTPException(status_code=500, detail="No triage agent configured. Set TRIAGE_AGENT_ID.")
+async def triage(ticket: str = Body(..., embed=True)) -> dict[str, Any]:
+    text = ticket.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Ticket content cannot be empty.")
 
     try:
-        thread = agents_client.threads.create()
-        agents_client.threads.messages.create(thread_id=thread.id, role="user", content=ticket)
-        run = agents_client.threads.runs.create(thread_id=thread.id, agent_id=triage_agent_id)
-    except Exception as exc:  # broad except to translate SDK failures into HTTP errors
-        raise HTTPException(status_code=502, detail=f"Failed to triage ticket: {exc}") from exc
-
-    return {"thread_id": thread.id, "run_id": run.id}
+        return await workflow.triage(text)
+    except WorkflowNotReadyError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (WorkflowExecutionError, WorkflowResultError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=f"Workflow execution failed: {exc}") from exc

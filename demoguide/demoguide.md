@@ -1,212 +1,173 @@
-# Multi-Agent Demo Guide
+# Multi-Agent Demo Walkthrough
 
-This guide walks through a live demo that deploys the Azure AI multi-agent triage solution, boots the specialist agents, and verifies their outputs in a single run.
-
----
-
-## Demo Objectives
-
-1. Provision the full infrastructure stack (Container App, Azure AI Foundry project, GPT-4o deployment, Container Registry).
-2. Bootstrap the four agents (priority, team, effort, triage) and store their IDs in the environment.
-3. Test each agent individually as well as the orchestrating triage flow.
-4. Highlight the Azure portal resources and agent responses using the prepared screenshots.
+This playbook contains the exact sequence to stand up, warm up, and present the Azure AI multi-agent triage solution during a live demo. Follow the numbered steps in order; each section calls out the commands to run, the story to tell, and the screenshot to show (when available).
 
 ---
 
-## 1. Deploy the Solution with `azd`
+## 0. Prerequisites
 
-### Command
+- Azure subscription with access to GPT-4o via Azure AI Foundry
+- Azure Developer CLI (`azd`) and Azure CLI (`az`) logged in (`az login`)
+- Python 3.12+ with `pip`
+- Optional: Docker if you plan to rebuild the API container
+
+From the repo root, install Python dependencies (once per machine):
+
+```pwsh
+pip install --pre -r src/api/requirements.txt
+```
+
+> If you already ran the quick start before the demo, ensure you are using the same `azd` environment that holds the outputs you plan to showcase.
+
+---
+
+## 1. Initialize the Environment
+
+```pwsh
+azd env new demo              # or `azd env select demo` if it already exists
+azd auth login                # optional; guarantees you are using the right tenant
+```
+
+- Mention that the repo ships with `azure.yaml`, so `azd` knows where the infrastructure and app code live.
+- Point out that `azd env list` shows all available environments if you need to double-check.
+
+---
+
+## 2. Provision Infrastructure (`azd up`)
 
 ```pwsh
 azd up
 ```
 
-### Narrative
+Narration points:
 
-- Explain that `azd up` uses the Bicep templates under `infra/` to build the entire environment:
-  - Azure Container Apps environment and container app hosting the FastAPI API.
-  - Azure Container Registry for the API image.
-  - Azure AI Foundry project with GPT-4o deployment and project connection.
-  - On Windows, the `scripts/ensure_resource_group.py` pre-provision hook automatically recreates the `azd-multiagent` resource group if it has been deleted, preventing "ResourceGroupNotFound" validation errors on repeat runs. Non-Windows operators can run the script manually before invoking `azd up`.
-- Point out the generated `.azure/<env>/.env` file containing outputs (project endpoint, agent IDs placeholder, container app URL).
-- Mention the `azure.yaml` metadata that identifies the service and infrastructure paths.
+- `azd up` orchestrates the Bicep modules under `infra/` to create everything end-to-end: Azure Container Apps environment, container app, container registry, Azure AI Foundry project, GPT-4o deployment, managed identities, and diagnostics resources.
+- Highlight the `infra/modules/foundry.bicep` module when explaining how the GPT-4o deployment is created automatically with capacity 2 (modifiable via `modelSkuCapacity`).
+- Call out that the command publishes the FastAPI container with environment variables injected from the deployment outputs.
+- Show `azd-multiagent-resource-group.png` to display the provisioned resource group and the resources inside it.
 
-### Screenshot Reference: `azd-multiagent-resource-group.png`
-
-![Azure portal view of the `azd-multiagent` resource group](./azd-multiagent-resource-group.png)
-
-Use this image to show the deployed resource group in the Azure portal. Highlight the following resources exactly as they appear in the screenshot:
-
-1. **`mafu2hiqxdamzxho-env`** – Azure Container Apps environment hosting the workload.
-2. **`mafu2hiqxdamzxho-api`** – Azure Container App running the FastAPI triage service.
-3. **`mafu2hiqxdamzxhoacr`** – Azure Container Registry storing the API container image.
-4. **`mafu2hiqxdamzxhovwfjhabtsivgeaif` (Azure AI Foundry account)** – the service that owns the GPT-4o deployment.
-5. **`mafu2hiqxdamzxhovwfjhabtsivgeproj` (Azure AI Foundry project)** – the project object used by the agents.
-6. **`log-mafu2hiqxdamzxho` Log Analytics workspace** – diagnostics for Container Apps.
-7. **`dce-mafu2hiqxdamzxho` / `dcr-mafu2hiqxdamzxho` data collection endpoint & rule** – ingest pipeline for Container Apps logs.
-8. **`appinsights-mafu2hiqxdamzxho` Application Insights** – telemetry for the API container.
-9. **Managed identity resources** (for example, `userAssignedIdentity-mafu2hiqxdamzxho`) – identities granted access to the AI project.
-10. **Supporting infrastructure** (such as the virtual network or storage account provisioned by Container Apps) – point out any additional entries visible in the screenshot.
-
-Note: The exact resource names use the deterministic suffix generated during deployment; align them with what appears in the image.
-
----
-
-## 2. Bootstrap the Agents
-
-### Command
+When the command finishes, demo the generated outputs:
 
 ```pwsh
-python scripts/bootstrap_agents.py
+azd env get-values
 ```
 
-### Narrative
-
-- Emphasize that the script waits for DNS propagation of the Azure AI Foundry endpoint before creating agents.
-- It creates three specialist agents and one triage agent, all targeting the GPT-4o deployment (`modelSkuCapacity` defaults to 2).
-- The script prints each agent ID and runs `azd env set` to persist them:
-  - `PRIORITY_AGENT_ID`
-  - `TEAM_AGENT_ID`
-  - `EFFORT_AGENT_ID`
-  - `TRIAGE_AGENT_ID`
-- These values are stored in `.azure/<env>/.env`, which the other scripts consume.
-
-### Screenshot Reference: `azd-multiagent-agents-in-ai-foundry.png`
-
-![Agents list in Azure AI Foundry showing priority, team, effort, and triage agents](./azd-multiagent-agents-in-ai-foundry.png)
-
-- Show the Azure AI Foundry portal listing the four agents (priority, team, effort, triage).
-- Highlight that the agent names match the ones created by the script.
-- Mention that the screenshot reinforces the automatic provisioning step versus manual creation.
+- Point at `AZURE_AI_PROJECT_ENDPOINT`, `AZURE_AI_MODEL_DEPLOYMENT_NAME`, and `APIURL` (container app URL). These will feed the scripts in the next steps.
 
 ---
 
-## 3. Test Agents Individually (Optional)
-
-### Command
+## 3. Warm Up the Workflow (`bootstrap_agents.py`)
 
 ```pwsh
-python scripts/verify_agent.py \
-  --agent-id $Env:TRIAGE_AGENT_ID \
-  --ticket "VPN outage affecting finance team" \
-  --max-attempts 12 \
-  --initial-backoff 12 \
-  --max-backoff 60 \
-  --show-transcript
+python scripts/bootstrap_agents.py --ticket "VPN outage affecting finance team" --output warmup.json
 ```
 
-### Narrative
+Narration points:
 
-- Explain the retry/backoff parameters which help overcome rate limits.
-- Mention that this script is useful for diagnosing issues and viewing transcripts for a single agent.
-- Encourage using the optional `--agent-id` to test priority/team/effort agents individually.
+- The script uses `src/api/triage_workflow.py` to instantiate the four agents (priority, team, effort, triage) in-process using the Microsoft Agent Framework.
+- The tool waits for DNS propagation, resolves the Azure AI project endpoint/model deployment, and prints an environment snapshot so you can reassure the audience that everything is wired correctly.
+- Optional `--ticket` performs a full warm-up run and returns JSON for the aggregated triage result; `--output` saves the payload for later reference.
+- If you omit `--ticket`, the script exits after initialization—useful for quick health checks between takes.
+- The console now prints the aggregated result plus each participant's contribution as compact, easy-to-read JSON; highlight how this makes it simple to narrate the workflow without post-processing the output.
+- If you notice stray internal spaces inside certain values (for example `"eff ort"`), call out that the script preserves the model's wording while only normalizing the layout.
 
-### Screenshot Reference: `azd-multiagent-agents-running.png`
-
-![Console output from verify_agent.py showing run status transitions](./azd-multiagent-agents-running.png)
-
-- Display this image to illustrate the verification script’s output during a run (statuses moving from `queued` to `completed`).
-- Call out how the script logs agent IDs and status transitions, validating successful execution.
+After the command finishes, open `warmup.json` in VS Code to show the structured JSON. Use `azd-multiagent-agents-in-ai-foundry.png` to reinforce that the four agents are conceptually represented.
 
 ---
 
-## 4. Test All Agents in One Command
-
-### Command
+## 4. Exercise the Workflow End-to-End (`test_all_agents.py`)
 
 ```pwsh
-python scripts/test_all_agents.py --ticket "VPN outage affecting finance team"
+python scripts/test_all_agents.py --ticket "Teams chat is down for the engineering org"
 ```
 
-### Narrative
+Narration points:
 
-- Explain that `test_all_agents.py` auto-loads `.azure/<env>/.env` (or a `--env-file` override) and now overrides any stale environment variables so no manual exports are required.
-- The script cycles through the priority, team, effort, and triage agents, printing each agent’s response in a consolidated summary.
-- Mention that the script logs when it overwrites existing values, which makes it clear you’re using the newest IDs and endpoints after reprovisioning or re-running `bootstrap_agents.py`.
-
-### Screenshot Reference: `azd-multiagent-agents-responses.png`
-
-![Consolidated console responses from test_all_agents.py](./azd-multiagent-agents-responses.png)
-
-- Use the screenshot to show the sample console output with all four agent responses.
-- Highlight the structure:
-  - `[PRIORITY] High`
-  - `[TEAM] Infra …`
-  - `[EFFORT]` – longer remediation guidance
-  - `[TRIAGE]` – consolidated assessment citing the specialist agents.
+- `test_all_agents.py` automatically loads `.azure/<env>/.env`, mapping legacy names (`projectEndpoint`) to the new variables if necessary, so you do not need to export anything manually.
+- It sequentially runs each participant plus the triage aggregator and prints their responses with labels, making it the fastest way to confirm the full workflow during a demo.
+- All participant responses are rendered as normalized JSON blocks, so you can read priority/team/effort summaries directly from the terminal without wading through line-wrapped tokens.
+- Occasional internal spacing quirks originate from the model output itself; the script keeps the text semantically intact while trimming the surrounding whitespace.
+- Mention that the script overwrites any stale environment variables detected in the current shell to avoid "agent not found" issues after redeployments.
+- Show `azd-multiagent-agents-responses.png` to visualize the console output structure.
 
 ---
 
-## 5. Review the GPT-4o Deployment
+## 5. Inspect Individual Agents (`verify_agent.py`)
 
-### Screenshot Reference: `azd-multiagent-model-deployment.png`
+```pwsh
+python scripts/verify_agent.py `
+	--agent-id $Env:TRIAGE_AGENT_ID `
+	--ticket "VPN outage affecting finance team" `
+	--max-attempts 12 `
+	--initial-backoff 12 `
+	--max-backoff 60 `
+	--show-transcript
+```
 
-![Azure AI Foundry model deployment blade showing the GPT-4o deployment](./azd-multiagent-model-deployment.png)
+Narration points:
 
-- Show the Azure AI Foundry portal’s model deployment view.
-- Emphasize the deployment name (default `gpt-4o`), capacity (default 2), and model type.
-- Mention that the Bicep module `infra/modules/foundry.bicep` controls these settings; adjust `modelSkuCapacity` if higher throughput is needed.
+- Use this command if you want to spotlight retry/backoff behavior or show the transcript for a single agent. Swap `TRIAGE_AGENT_ID` for `PRIORITY_AGENT_ID`, `TEAM_AGENT_ID`, or `EFFORT_AGENT_ID` when troubleshooting.
+- The script logs run status transitions (`queued → running → completed`) and writes out the exchange if you pass `--show-transcript`.
+- Show `azd-multiagent-agents-running.png` to illustrate how the status output looks during a live run.
 
 ---
 
-## 6. Optional: Interact via FastAPI Endpoint
+## 6. Show the API Surface
 
-- After `azd up`, the container app is reachable at the URL published under `apiUrl` in `.azure/<env>/.env`.
-- Demonstrate hitting the `/` health endpoint and the `/triage` POST endpoint (if desired) using tools like `curl` or PowerShell `Invoke-RestMethod`.
-- Note that the API uses the `TRIAGE_AGENT_ID` by default; re-run `bootstrap_agents.py` if redeploying the project.
+The deployed container app exposes two endpoints:
+
+- `GET /` – health probe
+- `POST /triage` – accepts `{ "ticket": "..." }` and returns the aggregated JSON
+
+Demonstrate the API using the `apiUrl` output:
+
+```pwsh
+$base = (azd env get-value apiUrl)
+Invoke-RestMethod "$base/" -Method Get
+Invoke-RestMethod "$base/triage" -Method Post -Body (@{ ticket = "VPN outage affecting finance" } | ConvertTo-Json) -ContentType 'application/json'
+```
+
+- Mention that the FastAPI app uses the same `TriageWorkflow` class under the hood, so the responses mirror what you saw in the scripts.
+- Show `azd-multi-agent-output.png` if you want a slide-friendly depiction of the API response.
 
 ---
 
-## 7. Cleanup
+## 7. Portal Deep Dive (Optional)
 
-### Command
+If you have extra time, walk through these portal blades:
+
+1. **Azure AI Foundry project** – show the model deployment (`azd-multiagent-model-deployment.png`) and describe capacity management and throttling.
+2. **Container App logs** – demonstrate how Log Analytics captures invocations and errors.
+3. **Managed identity assignments** – reinforce secure, passwordless access from the container app to the AI project.
+
+Keep each segment short—this is optional color for technical audiences.
+
+---
+
+## 8. Troubleshooting Checklist
+
+Work through the items in order if something breaks during a run:
+
+1. **Environment sanity** – `azd env get-values` and ensure the AI endpoint and model deployment variables are present.
+2. **Credential refresh** – run `azd auth login` or `az login` to refresh tokens before re-running scripts.
+3. **DNS propagation** – rerun `python scripts/bootstrap_agents.py` (without `--ticket`) and watch for the DNS wait loop message if the AI endpoint has not propagated yet.
+4. **Agent recreation** – if `verify_agent.py` returns "No assistant found", rerun the bootstrap script to rebuild the workflow.
+5. **Rate limits** – increase `--max-attempts`/`--max-backoff` on the verification script or bump `modelSkuCapacity` in Bicep, then redeploy.
+6. **Container diagnostics** – use Azure Monitor Logs to query `ContainerAppConsoleLogs_CL` for errors around the time of your run.
+
+Document any surprises during rehearsal so you can pre-empt them while presenting.
+
+---
+
+## 9. Cleanup
 
 ```pwsh
 azd down
 ```
 
-- Reinforce that this removes all resources (aligning with the "Clean up" section of the Microsoft Learn lab).
-- Alternatively, delete the resource group manually via the Azure portal as shown in `azd-multiagent-resource-group.png`.
+- Emphasize that this deletes the resource group created in Step 2, removing the GPT-4o deployment and container app to stop charges.
+- Alternatively, delete the resource group manually from the portal if you want to leave the `azd` environment metadata intact.
 
 ---
 
-## Demo Tips
-
-- Mention quota considerations for GPT-4o deployments; if runs fail due to rate limits, increase `modelSkuCapacity` or request additional capacity.
-- Keep `azd env get-values` handy to show environment outputs during the demo.
-- Show the FastAPI logs in Azure Monitor (Log Analytics) to correlate API calls with agent executions if time permits.
-
----
-
-By following these steps and leveraging the prepared screenshots, you can deliver a polished walkthrough of the multi-agent triage solution—from infrastructure deployment to agent orchestrations and final validation.
-
----
-
-## Troubleshooting Runbook
-
-Follow this checklist whenever the demo environment misbehaves. Work from top to bottom and stop once the issue is resolved.
-
-1. **Confirm environment variables**  
-  - Run `azd env get-values` and verify `AIFOUNDRY_PROJECT_ENDPOINT`, `PRIORITY_AGENT_ID`, `TEAM_AGENT_ID`, `EFFORT_AGENT_ID`, and `TRIAGE_AGENT_ID` are present.  
-  - If the IDs look stale, re-run `python scripts/bootstrap_agents.py` and reload the `.azure/<env>/.env` file. The verification scripts now override previously exported values automatically, but it’s still good hygiene to remove manually exported overrides when debugging.
-2. **Validate Azure resources exist**  
-  - Open the Azure portal to the `azd-multiagent` resource group.  
-  - Ensure the Container App, AI Foundry account/project, and GPT-4o deployment show a `Succeeded` provisioning state.  
-  - Windows runs automatically recreate the group via `scripts/ensure_resource_group.py`; if you’re on another OS or the hook was skipped, run `az group create --name azd-multiagent --location westus3` before rerunning the workflow.  
-  - If the AI project (or any dependent resource) is missing after the group exists, run `azd up` (or `azd provision`) to rebuild the stack prior to bootstrapping agents.
-3. **Check network and DNS**  
-  - From your shell, run `Resolve-DnsName <project-subdomain>.services.ai.azure.com`.  
-  - If DNS fails, wait a few minutes or rerun `bootstrap_agents.py` (the script includes a DNS wait loop).  
-  - Confirm outbound connectivity if running behind a corporate proxy or VPN.
-4. **Exercise a single agent**  
-  - Execute `python scripts/verify_agent.py --agent-id $Env:PRIORITY_AGENT_ID --show-transcript`.  
-  - Review the transcript for errors such as “No assistant found” or rate-limit responses.  
-  - If you see authentication failures, ensure your Azure CLI session is logged in (`az login`) and that you have `Reader`/`Contributor` access to the subscription.
-5. **Inspect Container App logs**  
-  - Use Azure Monitor → Logs with the provided queries in the README to inspect API errors.  
-  - If the API cannot reach the agents, confirm the managed identity has `Cognitive Services User` role on the AI project.
-6. **Reset the environment**  
-  - As a last resort, run `azd down` followed by `azd up` to rebuild the stack from scratch.  
-  - After provisioning, rerun the bootstrap and test scripts to repopulate agent IDs and verify end-to-end success.
-
-Document any deviations, screenshots, or additional fixes during the demo so future runs can benefit from the learnings.
+By following this sequence you can narrate the full journey—from infrastructure provisioning to agent orchestration and API consumption—without needing ad-hoc setup steps during the demo.
