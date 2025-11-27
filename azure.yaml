@@ -1,6 +1,6 @@
-name: multi-agent-ai-foundry
+name: tdd-azd-multi-agent-ms-foundry
 metadata:
-  template: multi-agent-ai-foundry@1.0.2
+  template:  tdd-azd-multi-agent-ms-foundry@1.0.2
 services:
   api:
     project: ./src/api
