@@ -15,7 +15,7 @@ The solution coordinates four agents:
 | Effort | Estimates delivery effort with supporting rationale | e.g., “Medium – provide remediation steps” |
 | Triage | Orchestrates the specialists to produce a consolidated ticket summary | e.g., “High priority • Infra • Medium effort” |
 
-The repository adds operational conveniences that go beyond the lab handout, including automated infrastructure deployment, repeatable agent bootstrapping, rate-limit-aware verification, and a consolidated test harness.
+The repository adds operational conveniences that go beyond the lab handout, including automated infrastructure deployment, repeatable agent bootstrapping, rate-limit-aware verification, and a consolidated test harness with readable JSON traces for demos.
 
 ---
 
@@ -42,7 +42,7 @@ Azure Resource Group (azd-multiagent)
 
 - `scripts/bootstrap_agents.py` – creates or refreshes the specialist + triage agents with the Microsoft Agent Framework and persists their IDs to the current `azd` environment.
 - `scripts/verify_agent.py` – verifies a single agent run with retry/backoff controls.
-- `scripts/test_all_agents.py` – runs all four agents in one command; automatically loads environment values from `.azure/<env>/.env`.
+- `scripts/test_all_agents.py` – runs all four agents in one command; automatically loads environment values from `.azure/<env>/.env` and emits normalized JSON blocks for each participant.
 - `scripts/bootstrap_agents.py` + `scripts/test_all_agents.py` supersede the manual Cloud Shell steps from the learning path.
 
 ---
@@ -118,13 +118,15 @@ This script waits for DNS propagation, creates the **priority**, **team**, **eff
 - `EFFORT_AGENT_ID`
 - `TRIAGE_AGENT_ID`
 
+It also prints an environment snapshot and, when run with `--ticket`, writes the aggregated Microsoft Agent Framework response to `warmup.json` for easy sharing.
+
 ### 3. Test All Agents at Once
 
 ```pwsh
 python scripts/test_all_agents.py --ticket "VPN outage affecting finance team"
 ```
 
-`test_all_agents.py` automatically loads `.azure/<env>/.env`, maps the `projectEndpoint` alias if necessary, and prints the response from each agent using the Microsoft Agent Framework runtime. Pass `--env-file` to point at a different environment snapshot.
+`test_all_agents.py` automatically loads `.azure/<env>/.env`, maps the `projectEndpoint` alias if necessary, and prints the response from each agent using the Microsoft Agent Framework runtime. Output is rendered as compact JSON blocks so you can narrate each participant’s decision without additional formatting. Pass `--env-file` to point at a different environment snapshot.
 
 Example output:
 
@@ -214,6 +216,7 @@ Alternatively, delete the resource group from the Azure portal (mirroring the �
 - [Develop a multi-agent solution – Microsoft Learn lab](https://microsoftlearning.github.io/mslearn-ai-agents/Instructions/03b-build-multi-agent-solution.html)
 - [Microsoft Foundry SDK documentation](https://learn.microsoft.com/azure/ai-foundry/how-to/develop/sdk-overview)
 - [Microsoft Agent Framework overview](https://learn.microsoft.com/azure/ai-services/openai/how-to/agents-overview)
+- `demoguide/demoguide.md` – step-by-step presenter script with screenshots and troubleshooting tips.
 
 Feel free to extend the project with additional agents, integrate telemetry, or adapt the infrastructure modules for your organization’s deployment process.
 
