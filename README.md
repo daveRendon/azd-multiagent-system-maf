@@ -1,10 +1,10 @@
-# Building a Multi-Agent Support Triage System with AZD and Azure AI Foundry
+# Building a Multi-Agent Support Triage System with AZD, Microsoft Agent Framework, and Microsoft Foundry
 
-This repository provides a complete, end-to-end example of how to design, build, and deploy a production-ready multi-agent solution on Azure, leveraging Azure AI Foundry Agent Service and connected agents.
+This repository provides a complete, end-to-end example of how to design, build, and deploy a production-ready multi-agent solution on Azure, leveraging the Microsoft Agent Framework and Microsoft Foundry resources.
 
 We will recreate a ticket-triage system in which a primary agent delegates to three specialists: priority, team assignment, and effort estimation. Then, we will map it to a reference architecture and walk through deployment choices so you can ship it for real workloads.
 
-This repository automates the scenario by provisioning Azure infrastructure with Bicep, deploying a FastAPI container to Azure Container Apps, and wiring the app to a multi-agent workflow in Azure AI Foundry.
+This repository automates the scenario by provisioning Azure infrastructure with Bicep, deploying a FastAPI container to Azure Container Apps, and wiring the app to a multi-agent workflow in Microsoft Foundry.
 
 The solution coordinates four agents:
 
@@ -28,19 +28,19 @@ Azure Resource Group (azd-multiagent)
 │     ├─ Managed Identity
 │     └─ Azure Container Registry image
 ├─ Azure Container Registry
-└─ Azure AI Foundry Project
+└─ Microsoft Foundry Project
 	├─ GPT-4o model deployment (capacity configurable)
 	├─ Project connection (AAD)
 	└─ Multi-agent graph (Priority, Team, Effort, Triage)
 ```
 
-**Infrastructure as Code**: `infra/main.bicep` composes individual modules for the container app (`infra/modules/containerapp.bicep`), Azure AI Foundry resources (`infra/modules/foundry.bicep`), and container registry (`infra/modules/acr.bicep`).
+**Infrastructure as Code**: `infra/main.bicep` composes individual modules for the container app (`infra/modules/containerapp.bicep`), Microsoft Foundry resources (`infra/modules/foundry.bicep`), and container registry (`infra/modules/acr.bicep`).
 
 **Application**: `src/api/app.py` hosts FastAPI endpoints that expose the triage capability. Environment variables emitted by the Bicep deployment provide the AI project endpoint and agent IDs.
 
 **Automation scripts**:
 
-- `scripts/bootstrap_agents.py` – creates or refreshes the specialist + triage agents and persists their IDs to the current `azd` environment.
+- `scripts/bootstrap_agents.py` – creates or refreshes the specialist + triage agents with the Microsoft Agent Framework and persists their IDs to the current `azd` environment.
 - `scripts/verify_agent.py` – verifies a single agent run with retry/backoff controls.
 - `scripts/test_all_agents.py` – runs all four agents in one command; automatically loads environment values from `.azure/<env>/.env`.
 - `scripts/bootstrap_agents.py` + `scripts/test_all_agents.py` supersede the manual Cloud Shell steps from the learning path.
@@ -55,7 +55,7 @@ Azure Resource Group (azd-multiagent)
 │  ├─ main.bicep               # top-level infrastructure composition
 │  └─ modules/
 │     ├─ containerapp.bicep    # Azure Container Apps + env vars
-│     ├─ foundry.bicep         # Azure AI Foundry project + GPT-4o deployment
+│     ├─ foundry.bicep         # Microsoft Foundry project + GPT-4o deployment
 │     └─ acr.bicep             # Azure Container Registry
 ├─ src/
 │  └─ api/
@@ -72,7 +72,7 @@ Azure Resource Group (azd-multiagent)
 
 ## Prerequisites
 
-1. **Azure subscription** with access to GPT-4o capacity in Azure AI Foundry.
+1. **Azure subscription** with access to GPT-4o capacity in Microsoft Foundry.
 2. **Azure Developer CLI (azd)** v1.9+ and the Azure CLI (`az`) installed locally.
 3. **Python 3.12+** with `pip` available on your development machine.
 4. **Docker** (builds the API image if you make code changes).
@@ -96,7 +96,7 @@ This command:
 
 - Creates the Azure resource group and supporting resources.
 - Deploys the FastAPI container image to Azure Container Apps.
-- Provisions an Azure AI Foundry project, connection, and GPT-4o deployment (default capacity = 2, adjustable via `modelSkuCapacity`).
+- Provisions a Microsoft Foundry project, connection, and GPT-4o deployment (default capacity = 2, adjustable via `modelSkuCapacity`).
 
 At the end of the run, `azd` populates `.azure/<env>/.env` with output values including:
 
@@ -124,7 +124,7 @@ This script waits for DNS propagation, creates the **priority**, **team**, **eff
 python scripts/test_all_agents.py --ticket "VPN outage affecting finance team"
 ```
 
-`test_all_agents.py` automatically loads `.azure/<env>/.env`, maps the `projectEndpoint` alias if necessary, and prints the response from each agent. Pass `--env-file` to point at a different environment snapshot.
+`test_all_agents.py` automatically loads `.azure/<env>/.env`, maps the `projectEndpoint` alias if necessary, and prints the response from each agent using the Microsoft Agent Framework runtime. Pass `--env-file` to point at a different environment snapshot.
 
 Example output:
 
@@ -166,7 +166,7 @@ The official instructions walk through four phases, each of which maps to automa
 
 | Lab Section | Manual Step | Repository Equivalent |
 |-------------|-------------|------------------------|
-| Create an Azure AI Foundry project | Portal-based project creation, GPT-4o deployment | `infra/modules/foundry.bicep` (deployed by `azd up`) |
+| Create a Microsoft Foundry project | Portal-based project creation, GPT-4o deployment | `infra/modules/foundry.bicep` (deployed by `azd up`) |
 | Create an AI Agent client app – Prepare environment | Clone repo, set up Python environment | Included in this repo; no Cloud Shell setup needed |
 | Create AI agents | Manually edit `agent_triage.py` | `scripts/bootstrap_agents.py` & `scripts/test_all_agents.py` automate agent creation and testing |
 | Sign into Azure and run the app | Run `python agent_triage.py` interactively | FastAPI service + verification scripts provide automated and API-based execution |
@@ -212,8 +212,8 @@ Alternatively, delete the resource group from the Azure portal (mirroring the �
 ## Additional Resources
 
 - [Develop a multi-agent solution – Microsoft Learn lab](https://microsoftlearning.github.io/mslearn-ai-agents/Instructions/03b-build-multi-agent-solution.html)
-- [Azure AI Foundry SDK documentation](https://learn.microsoft.com/azure/ai-foundry/how-to/develop/sdk-overview)
-- [Azure AI Agent Service overview](https://learn.microsoft.com/azure/ai-services/openai/how-to/agents-overview)
+- [Microsoft Foundry SDK documentation](https://learn.microsoft.com/azure/ai-foundry/how-to/develop/sdk-overview)
+- [Microsoft Agent Framework overview](https://learn.microsoft.com/azure/ai-services/openai/how-to/agents-overview)
 
 Feel free to extend the project with additional agents, integrate telemetry, or adapt the infrastructure modules for your organization’s deployment process.
 

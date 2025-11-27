@@ -6,7 +6,7 @@ This playbook contains the exact sequence to stand up, warm up, and present the 
 
 ## 0. Prerequisites
 
-- Azure subscription with access to GPT-4o via Azure AI Foundry
+- Azure subscription with access to GPT-4o via Microsoft Foundry
 - Azure Developer CLI (`azd`) and Azure CLI (`az`) logged in (`az login`)
 - Python 3.12+ with `pip`
 - Optional: Docker if you plan to rebuild the API container
@@ -41,7 +41,7 @@ azd up
 
 Narration points:
 
-- `azd up` orchestrates the Bicep modules under `infra/` to create everything end-to-end: Azure Container Apps environment, container app, container registry, Azure AI Foundry project, GPT-4o deployment, managed identities, and diagnostics resources.
+- `azd up` orchestrates the Bicep modules under `infra/` to create everything end-to-end: Azure Container Apps environment, container app, container registry, Microsoft Foundry project, GPT-4o deployment, managed identities, and diagnostics resources.
 - Highlight the `infra/modules/foundry.bicep` module when explaining how the GPT-4o deployment is created automatically with capacity 2 (modifiable via `modelSkuCapacity`).
 - Call out that the command publishes the FastAPI container with environment variables injected from the deployment outputs.
 - Show `azd-multiagent-resource-group.png` to display the provisioned resource group and the resources inside it.
@@ -71,7 +71,7 @@ Narration points:
 - The console now prints the aggregated result plus each participant's contribution as compact, easy-to-read JSON; highlight how this makes it simple to narrate the workflow without post-processing the output.
 - If you notice stray internal spaces inside certain values (for example `"eff ort"`), call out that the script preserves the model's wording while only normalizing the layout.
 
-After the command finishes, open `warmup.json` in VS Code to show the structured JSON. Use `azd-multiagent-agents-in-ai-foundry.png` to reinforce that the four agents are conceptually represented.
+After the command finishes, open `warmup.json` in VS Code to show the structured JSON. Use `azd-multiagent-agents-in-ai-foundry.png` (Microsoft Foundry portal) to reinforce that the four agents are conceptually represented.
 
 ---
 
@@ -136,7 +136,7 @@ Invoke-RestMethod "$base/triage" -Method Post -Body (@{ ticket = "VPN outage aff
 
 If you have extra time, walk through these portal blades:
 
-1. **Azure AI Foundry project** – show the model deployment (`azd-multiagent-model-deployment.png`) and describe capacity management and throttling.
+1. **Microsoft Foundry project** – show the model deployment (`azd-multiagent-model-deployment.png`) and describe capacity management and throttling.
 2. **Container App logs** – demonstrate how Log Analytics captures invocations and errors.
 3. **Managed identity assignments** – reinforce secure, passwordless access from the container app to the AI project.
 
